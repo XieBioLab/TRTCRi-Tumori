@@ -18,7 +18,7 @@ Together, TRTCRi and Tumori offer an antigen-agnostic, sequence-based strategy f
 From Source:
 
 ~~~shell
-git clone https://github.com/leo5258/TRTCRi-Tumori.git
+git clone https://github.com/XieBioLab/TRTCRi-Tumori.git
 cd TRTCRi-Tumori
 ~~~
 
