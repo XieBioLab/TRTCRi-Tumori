@@ -21,10 +21,13 @@ From Source:
 git clone https://github.com/XieBioLab/TRTCRi-Tumori.git
 cd TRTCRi-Tumori
 ~~~
+### Create and activate a conda environment (recommended)
 
-Running the iCanTCR requires python3.6, numpy version 2.3.2, torch version 2.5.1, transformers version 4.47.1, pandas version 2.3.1 and scikit-learn version 1.7.1 to be installed.
-
-If they are not installed on your environment, please first install numpy, pandas, and scikit-learn by running the following command:
+~~~shell
+conda create -n trtcri python=3.9 -y
+conda activate trtcri
+~~~
+Running the iCanTCR requires Python 3.9 or higher.
 
 ~~~shell
  pip install -r requirements.txt
