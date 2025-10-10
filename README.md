@@ -66,7 +66,9 @@ In theory, our testing code is designed with high compatibility. You can run TRT
 ---
 
 ## Using TRTCRi & Tumori
-
+Before using TRTCRi and Tumori, please download the model files from https://zenodo.org/records/17313087
+ and extract them.
+Place the TRTCRi and Tumori folders in the current working directory, i.e., TRTCRi-Tumori/TRTCRi and TRTCRi-Tumori/Tumori.
 ### TRTCRi
 
 To run **TRTCRi**, you can use the following command. A test file is provided under the `examples` directory. If you wish to use your own data file, ensure it is in `.csv`, `.xlsx`, or `.tsv` format with the following **six columns**:
