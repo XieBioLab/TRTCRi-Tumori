@@ -52,7 +52,7 @@ def compute_trainer_metrics(pred):
 
 def main():
     parser = argparse.ArgumentParser(description="Train the Tumori model.")
-    parser.add_argument("--train_file", default="datasets/train_Tumori.xlsx")
+    parser.add_argument("--train_file", default="datasets/train_Tumori.csv")
     parser.add_argument("--base_model", default="facebook/esm2_t33_650M_UR50D")
     parser.add_argument("--output_root", default="modelresult/Tumori")
     parser.add_argument("--epochs", type=float, default=5)

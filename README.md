@@ -9,7 +9,7 @@ This repository contains the training and inference code for TRTCRi and Tumori.
 - `src/predict_trtcri.py`: TRTCRi inference for a single model directory or a `fold_1` to `fold_5` ensemble.
 - `src/predict_tumori.py`: Tumori inference and optional TopK weighted sample scoring when `reads_A` and `reads_B` are present.
 - `src/common.py`: shared data loading, sequence construction, metrics, and inference utilities.
-- `datasets/`: TRTCRi and Tumori training sets.
+- `datasets/`: updated TRTCRi and Tumori training sets, 69 supplementary validation sample files, and a [dataset guide](datasets/README.md).
 - `examples/`: example inputs for inference.
 
 Traditional machine-learning baselines, external model comparisons, intermediate result folders, and local model-weight files are not included in this code folder.
@@ -119,7 +119,7 @@ Train Tumori:
 
 ```bash
 python src/train_tumori.py \
-  --train_file datasets/train_Tumori.xlsx \
+  --train_file datasets/train_Tumori.csv \
   --output_root modelresult/Tumori \
   --fp16
 ```

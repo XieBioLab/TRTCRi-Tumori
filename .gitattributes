@@ -1,0 +1,4 @@
+# Preserve exact dataset bytes so the published SHA-256 manifest stays valid.
+/datasets/*.csv -text
+/datasets/*.xlsx -text
+/datasets/validation/*.csv -text
