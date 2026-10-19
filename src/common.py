@@ -80,6 +80,8 @@ def build_tcr_sequences(df):
 def require_label_column(df, label_col="Label"):
     if label_col not in df.columns:
         raise ValueError(f"Missing label column: {label_col}")
+    if df[label_col].isna().any() or not df[label_col].isin([0, 1]).all():
+        raise ValueError(f"{label_col} must contain only binary values 0 and 1.")
     return df[label_col].astype(int).tolist()
 
 

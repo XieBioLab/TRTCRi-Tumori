@@ -5,8 +5,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.model_selection import KFold
-from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
+from sklearn.model_selection import StratifiedKFold
+from transformers import AutoTokenizer
+
+from training_utils import add_head_arguments, make_trainer, new_model, save_run_config, validate_training_arguments
 
 from common import (
     TCRDataset,
@@ -21,67 +23,26 @@ from common import (
 )
 
 
-def build_training_args(output_dir, args):
-    kwargs = {
-        "output_dir": str(output_dir / "trainer_checkpoints"),
-        "num_train_epochs": args.epochs,
-        "per_device_train_batch_size": args.batch_size,
-        "per_device_eval_batch_size": args.batch_size,
-        "gradient_accumulation_steps": args.gradient_accumulation_steps,
-        "save_strategy": "epoch",
-        "logging_steps": 100,
-        "learning_rate": args.learning_rate,
-        "weight_decay": args.weight_decay,
-        "load_best_model_at_end": True,
-        "metric_for_best_model": "eval_f1",
-        "report_to": "none",
-        "lr_scheduler_type": "cosine",
-        "fp16": torch.cuda.is_available() and args.fp16,
-    }
-    try:
-        return TrainingArguments(evaluation_strategy="epoch", **kwargs)
-    except TypeError:
-        return TrainingArguments(eval_strategy="epoch", **kwargs)
-
-
-def compute_trainer_metrics(pred):
-    labels = pred.label_ids
-    logits = pred.predictions[0] if isinstance(pred.predictions, tuple) else pred.predictions
-    probs = torch.softmax(torch.tensor(logits), dim=1).numpy()[:, 1]
-    metrics = compute_binary_metrics(labels, probs)
-    return {"accuracy": metrics["accuracy"], "f1": metrics["f1"]}
-
-
 def train_fold(fold_id, train_idx, val_idx, sequences, labels, tokenizer, args, run_dir, device):
     fold_dir = run_dir / f"fold_{fold_id}"
     fold_dir.mkdir(parents=True, exist_ok=True)
+    set_seed(args.seed + fold_id)
 
     train_sequences = [sequences[i] for i in train_idx]
     train_labels = [labels[i] for i in train_idx]
     val_sequences = [sequences[i] for i in val_idx]
     val_labels = [labels[i] for i in val_idx]
 
-    config = AutoConfig.from_pretrained(args.base_model)
-    config.num_labels = 2
-    config.problem_type = "single_label_classification"
-    config.classifier_dropout = args.classifier_dropout
-
-    model = AutoModelForSequenceClassification.from_pretrained(args.base_model, config=config).to(device)
+    model = new_model(args).to(device)
     train_dataset = TCRDataset(train_sequences, tokenizer, train_labels, max_length=args.max_length)
     val_dataset = TCRDataset(val_sequences, tokenizer, val_labels, max_length=args.max_length)
 
-    trainer = Trainer(
-        model=model,
-        args=build_training_args(fold_dir, args),
-        train_dataset=train_dataset,
-        eval_dataset=val_dataset,
-        compute_metrics=compute_trainer_metrics,
-    )
+    trainer = make_trainer(model, fold_dir, train_dataset, val_dataset, args)
     trainer.train()
     trainer.save_model(fold_dir)
     tokenizer.save_pretrained(fold_dir)
 
-    val_probs = predict_probabilities(model, val_dataset, device, batch_size=args.predict_batch_size)
+    val_probs = predict_probabilities(trainer.model, val_dataset, device, batch_size=args.predict_batch_size)
     metrics = compute_binary_metrics(val_labels, val_probs, threshold=args.threshold)
     metrics["fold"] = fold_id
     save_metrics_json(metrics, fold_dir / "metrics.json")
@@ -89,6 +50,7 @@ def train_fold(fold_id, train_idx, val_idx, sequences, labels, tokenizer, args, 
 
     pd.DataFrame(
         {
+            "row_index": val_idx,
             "sequence": val_sequences,
             "Label": val_labels,
             "TRTCRi_probability": val_probs,
@@ -116,7 +78,9 @@ def main():
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fp16", action="store_true")
+    add_head_arguments(parser)
     args = parser.parse_args()
+    validate_training_arguments(args)
 
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -131,21 +95,26 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
-    splitter = KFold(n_splits=args.folds, shuffle=True, random_state=args.seed)
+    splitter = StratifiedKFold(n_splits=args.folds, shuffle=True, random_state=args.seed)
+    save_run_config(args, run_dir, labels, "stratified sequence-record fivefold")
     fold_metrics = []
+    assignments = np.zeros(len(labels), dtype=int)
 
-    for fold_id, (train_idx, val_idx) in enumerate(splitter.split(sequences), start=1):
+    for fold_id, (train_idx, val_idx) in enumerate(splitter.split(sequences, labels), start=1):
+        assignments[val_idx] = fold_id
         print(f"Training fold {fold_id}/{args.folds}")
         fold_metrics.append(
             train_fold(fold_id, train_idx, val_idx, sequences, labels, tokenizer, args, run_dir, device)
         )
 
+    pd.DataFrame({"row_index": np.arange(len(labels)), "Label": labels, "validation_fold": assignments}).to_csv(run_dir / "fold_assignments.csv", index=False)
     summary = pd.DataFrame(fold_metrics)
     summary.to_csv(run_dir / "fold_metrics.csv", index=False)
 
     numeric_cols = [col for col in summary.columns if col not in {"fold", "confusion_matrix"}]
     averages = summary[numeric_cols].mean(numeric_only=True).to_dict()
-    save_metrics_json({"folds": fold_metrics, "average": averages}, run_dir / "summary.json")
+    standard_deviations = summary[numeric_cols].std(ddof=1, numeric_only=True).to_dict()
+    save_metrics_json({"folds": fold_metrics, "average": averages, "sample_sd": standard_deviations}, run_dir / "summary.json")
     print(f"Training complete. Results saved to: {run_dir}")
 
 

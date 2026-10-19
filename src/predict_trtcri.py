@@ -4,7 +4,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoTokenizer
+
+from modeling_tcr import load_prediction_model
 
 from common import TCRDataset, build_tcr_sequences, predict_probabilities, read_table
 
@@ -39,7 +41,7 @@ def main():
     for model_path in model_dirs:
         print(f"Loading TRTCRi model: {model_path}")
         tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
-        model = AutoModelForSequenceClassification.from_pretrained(model_path, local_files_only=True).to(device)
+        model = load_prediction_model(model_path).to(device)
         dataset = TCRDataset(sequences, tokenizer, labels=None, max_length=args.max_length)
         all_probs.append(predict_probabilities(model, dataset, device, batch_size=args.batch_size))
 

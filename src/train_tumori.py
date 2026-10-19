@@ -5,7 +5,9 @@ from pathlib import Path
 import pandas as pd
 import torch
 from sklearn.model_selection import train_test_split
-from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer, Trainer, TrainingArguments
+from transformers import AutoTokenizer
+
+from training_utils import add_head_arguments, make_trainer, new_model, save_run_config, validate_training_arguments
 
 from common import (
     TCRDataset,
@@ -20,36 +22,6 @@ from common import (
 )
 
 
-def build_training_args(output_dir, args):
-    kwargs = {
-        "output_dir": str(output_dir / "trainer_checkpoints"),
-        "num_train_epochs": args.epochs,
-        "per_device_train_batch_size": args.batch_size,
-        "per_device_eval_batch_size": args.batch_size,
-        "gradient_accumulation_steps": args.gradient_accumulation_steps,
-        "save_strategy": "epoch",
-        "logging_steps": 100,
-        "learning_rate": args.learning_rate,
-        "weight_decay": args.weight_decay,
-        "load_best_model_at_end": True,
-        "metric_for_best_model": "eval_f1",
-        "report_to": "none",
-        "lr_scheduler_type": "cosine",
-        "fp16": torch.cuda.is_available() and args.fp16,
-    }
-    try:
-        return TrainingArguments(evaluation_strategy="epoch", **kwargs)
-    except TypeError:
-        return TrainingArguments(eval_strategy="epoch", **kwargs)
-
-
-def compute_trainer_metrics(pred):
-    logits = pred.predictions[0] if isinstance(pred.predictions, tuple) else pred.predictions
-    probs = torch.softmax(torch.tensor(logits), dim=1).numpy()[:, 1]
-    metrics = compute_binary_metrics(pred.label_ids, probs)
-    return {"accuracy": metrics["accuracy"], "f1": metrics["f1"]}
-
-
 def main():
     parser = argparse.ArgumentParser(description="Train the Tumori model.")
     parser.add_argument("--train_file", default="datasets/train_Tumori.csv")
@@ -62,12 +34,14 @@ def main():
     parser.add_argument("--learning_rate", type=float, default=4.5e-5)
     parser.add_argument("--weight_decay", type=float, default=0.01)
     parser.add_argument("--classifier_dropout", type=float, default=0.1)
-    parser.add_argument("--max_length", type=int, default=512)
+    parser.add_argument("--max_length", type=int, default=320)
     parser.add_argument("--validation_size", type=float, default=0.2)
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fp16", action="store_true")
+    add_head_arguments(parser)
     args = parser.parse_args()
+    validate_training_arguments(args)
 
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -77,46 +51,44 @@ def main():
     sequences = build_tcr_sequences(df)
     labels = require_label_column(df, "Label")
 
-    train_sequences, val_sequences, train_labels, val_labels = train_test_split(
-        sequences,
-        labels,
+    train_indices, val_indices = train_test_split(
+        list(range(len(labels))),
         test_size=args.validation_size,
         stratify=labels,
         random_state=args.seed,
     )
 
+    train_sequences = [sequences[i] for i in train_indices]
+    val_sequences = [sequences[i] for i in val_indices]
+    train_labels = [labels[i] for i in train_indices]
+    val_labels = [labels[i] for i in val_indices]
+
     run_name = datetime.datetime.now().strftime("Tumori_ESM2_%Y%m%d-%H%M%S")
     run_dir = Path(args.output_root) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    save_run_config(args, run_dir, labels, "stratified sequence-record train/validation")
+    validation_rows = set(val_indices)
+    pd.DataFrame({"row_index": range(len(labels)), "Label": labels,
+                  "split": ["validation" if i in validation_rows else "train" for i in range(len(labels))]}).to_csv(run_dir / "split_assignments.csv", index=False)
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
-    config = AutoConfig.from_pretrained(args.base_model)
-    config.num_labels = 2
-    config.problem_type = "single_label_classification"
-    config.classifier_dropout = args.classifier_dropout
-
-    model = AutoModelForSequenceClassification.from_pretrained(args.base_model, config=config).to(device)
+    model = new_model(args).to(device)
     train_dataset = TCRDataset(train_sequences, tokenizer, train_labels, max_length=args.max_length)
     val_dataset = TCRDataset(val_sequences, tokenizer, val_labels, max_length=args.max_length)
 
-    trainer = Trainer(
-        model=model,
-        args=build_training_args(run_dir, args),
-        train_dataset=train_dataset,
-        eval_dataset=val_dataset,
-        compute_metrics=compute_trainer_metrics,
-    )
+    trainer = make_trainer(model, run_dir, train_dataset, val_dataset, args)
     trainer.train()
     trainer.save_model(run_dir)
     tokenizer.save_pretrained(run_dir)
 
-    val_probs = predict_probabilities(model, val_dataset, device, batch_size=args.predict_batch_size)
+    val_probs = predict_probabilities(trainer.model, val_dataset, device, batch_size=args.predict_batch_size)
     metrics = compute_binary_metrics(val_labels, val_probs, threshold=args.threshold)
     save_metrics_json(metrics, run_dir / "metrics.json")
     save_curves(val_labels, val_probs, run_dir)
 
     pd.DataFrame(
         {
+            "row_index": val_indices,
             "sequence": val_sequences,
             "Label": val_labels,
             "Tumori_probability": val_probs,
