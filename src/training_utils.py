@@ -41,6 +41,8 @@ def add_head_arguments(parser):
     parser.add_argument("--dropout_rates", type=float, nargs=3, default=None,
                         help="Three branch probabilities; default repeats --classifier_dropout.")
     parser.add_argument("--label_smoothing", type=float, default=0.1)
+    parser.add_argument("--save_total_limit", type=int, default=2,
+                        help="Retained trainer checkpoints per fold; best checkpoint is preserved.")
 
 
 def validate_training_arguments(args):
@@ -52,6 +54,8 @@ def validate_training_arguments(args):
         raise ValueError("Dropout and label smoothing must lie in [0, 1).")
     if not 0 < args.threshold < 1:
         raise ValueError("The classification threshold must lie in (0, 1).")
+    if getattr(args, "save_total_limit", 2) < 1:
+        raise ValueError("At least one trainer checkpoint must be retained.")
 
 
 def build_training_args(output_dir, args):
@@ -62,6 +66,7 @@ def build_training_args(output_dir, args):
         "per_device_eval_batch_size": args.batch_size,
         "gradient_accumulation_steps": args.gradient_accumulation_steps,
         "save_strategy": "epoch", "logging_steps": 100,
+        "save_total_limit": getattr(args, "save_total_limit", 2),
         "learning_rate": args.learning_rate, "weight_decay": args.weight_decay,
         "load_best_model_at_end": True, "metric_for_best_model": "eval_f1",
         "greater_is_better": True, "report_to": "none", "lr_scheduler_type": "cosine",

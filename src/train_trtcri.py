@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import gc
 from pathlib import Path
 
 import numpy as np
@@ -58,6 +59,10 @@ def train_fold(fold_id, train_idx, val_idx, sequences, labels, tokenizer, args, 
         }
     ).to_csv(fold_dir / "validation_predictions.csv", index=False)
 
+    del trainer, model
+    gc.collect()
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
     return metrics
 
 

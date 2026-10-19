@@ -155,6 +155,8 @@ python src/train_trtcri.py \
 
 TRTCRi uses stratified sequence-record fivefold cross-validation; Tumori uses a stratified train/validation split. These defaults do not perform donor/source/similarity-group held-out evaluation. Input class proportions are preserved without automatic resampling. Each run writes `run_config.json`, row-level split assignments, validation predictions and metrics. TRTCRi also writes across-fold means and sample SDs (`ddof=1`); the SD is not a confidence interval. Fold models start afresh from ESM-2 with newly initialized heads.
 
+`--save_total_limit` defaults to 2 retained trainer checkpoints per fold, preserving the selected best checkpoint. Final model files are saved separately. GPU allocations are released between folds to avoid carrying unused models into the next fold.
+
 The optional search entry point requires explicit grids for encoder LR, head LR and dropout. Example values below illustrate use and do not reconstruct the manuscript's original search space:
 
 ```bash
